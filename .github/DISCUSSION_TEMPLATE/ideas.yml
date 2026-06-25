@@ -1,0 +1,17 @@
+name: Ideas
+description: Share a design idea or product direction.
+title: "[Idea]: "
+labels:
+  - idea
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: Idea
+      description: What should Lens do or change?
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why it matters
