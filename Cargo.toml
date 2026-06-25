@@ -1,0 +1,17 @@
+[workspace]
+members = [
+  "crates/lens-core",
+  "crates/lens-protocol",
+  "crates/lens-proto-http1",
+  "crates/lens-proto-postgres",
+  "crates/lens-redact",
+  "crates/lens-store",
+  "crates/lens-platform",
+  "crates/lens-tls",
+  "crates/lens-proxy",
+  "crates/lens-tui",
+  "crates/lens-plugin",
+  "crates/lens-ebpf",
+  "crates/lens-cli",
+]
+resolver = "2"
