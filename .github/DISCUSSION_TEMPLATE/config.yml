@@ -1,0 +1,10 @@
+blank_issues_enabled: false
+categories:
+  - title: Ideas
+    description: Share ideas or request design feedback.
+    label: idea
+    form: ideas.yml
+  - title: Questions
+    description: Ask how the project works or how to use it.
+    label: question
+    form: questions.yml
