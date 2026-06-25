@@ -1,4 +1,7 @@
+Note **TraceFlow** is **Lens**
+
 The Blueprint - **TraceFlow**
+
 
 ### Vision
 To make the "invisible" interactions between modern software components visible to every developer, making local debugging as easy as looking at a map.
