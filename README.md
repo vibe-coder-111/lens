@@ -1,4 +1,6 @@
-Note **TraceFlow** is **Lens**
+Note 
+1)**TraceFlow** aka **Lens**
+2)**This is a vibe coded project use with caution**
 
 The Blueprint - **TraceFlow**
 
