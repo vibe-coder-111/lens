@@ -44,7 +44,7 @@
 //!
 //! Milestone 1 in this commit implements the shared event envelope and identifier primitives.
 //! Milestone 2 in this commit adds the first concrete flow and message record primitives.
-//! Milestone 3 in this commit adds the session identity model and flow association primitives.
+//! Milestone 3 in this commit adds the session identity model and lifecycle state primitives.
 
 use std::fmt;
 
@@ -486,7 +486,11 @@ pub struct MessageRecord {
 impl MessageRecord {
     /// Creates a new message record from an envelope and payload.
     #[must_use]
-    pub fn new(envelope: EventEnvelope, summary: impl Into<String>, body: impl Into<Vec<u8>>) -> Self {
+    pub fn new(
+        envelope: EventEnvelope,
+        summary: impl Into<String>,
+        body: impl Into<Vec<u8>>,
+    ) -> Self {
         Self {
             envelope,
             summary: summary.into(),
@@ -500,6 +504,27 @@ impl MessageRecord {
     pub fn with_truncated(mut self, truncated: bool) -> Self {
         self.truncated = truncated;
         self
+    }
+}
+
+/// Session lifecycle state.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum SessionState {
+    /// The session is active.
+    Open,
+    /// The session closed normally.
+    Closed,
+    /// The session failed or was interrupted.
+    Failed,
+}
+
+impl fmt::Display for SessionState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Open => "open",
+            Self::Closed => "closed",
+            Self::Failed => "failed",
+        })
     }
 }
 
@@ -559,6 +584,8 @@ pub struct SessionRecord {
     pub envelope: EventEnvelope,
     /// Identity information for the owner or workload.
     pub identity: SessionIdentity,
+    /// Current session state.
+    pub state: SessionState,
     /// Associated flow identifiers.
     pub flow_ids: Vec<FlowId>,
 }
@@ -570,8 +597,16 @@ impl SessionRecord {
         Self {
             envelope,
             identity,
+            state: SessionState::Open,
             flow_ids: Vec::new(),
         }
+    }
+
+    /// Updates the session state.
+    #[must_use]
+    pub fn with_state(mut self, state: SessionState) -> Self {
+        self.state = state;
+        self
     }
 
     /// Records a flow identifier for the session.
@@ -672,13 +707,15 @@ mod tests {
         assert_eq!(FlowState::Closed.to_string(), "closed");
         assert_eq!(FlowState::Failed.to_string(), "failed");
 
-        let message_envelope = EventEnvelope::new("message.emitted", RunId::new(42), EventSource::Decoder)
-            .with_flow_id(FlowId::new(5))
-            .with_message_id(MessageId::new(99))
-            .with_direction(Direction::ClientToServer)
-            .with_sensitivity(Sensitivity::Redacted);
-        let message = MessageRecord::new(message_envelope.clone(), "GET /health", b"hello".to_vec())
-            .with_truncated(true);
+        let message_envelope =
+            EventEnvelope::new("message.emitted", RunId::new(42), EventSource::Decoder)
+                .with_flow_id(FlowId::new(5))
+                .with_message_id(MessageId::new(99))
+                .with_direction(Direction::ClientToServer)
+                .with_sensitivity(Sensitivity::Redacted);
+        let message =
+            MessageRecord::new(message_envelope.clone(), "GET /health", b"hello".to_vec())
+                .with_truncated(true);
 
         assert_eq!(message.envelope, message_envelope);
         assert_eq!(message.summary, "GET /health");
@@ -688,24 +725,33 @@ mod tests {
 
     #[test]
     fn session_identity_and_record_track_associated_flows() {
-        let session_envelope = EventEnvelope::new("session.started", RunId::new(77), EventSource::Proxy)
-            .with_session_id(SessionId::new(11));
+        let session_envelope =
+            EventEnvelope::new("session.started", RunId::new(77), EventSource::Proxy)
+                .with_session_id(SessionId::new(11));
         let identity = SessionIdentity::new()
             .with_label("api-service")
             .with_user("alice")
             .with_container("checkout")
             .with_binary_path("/usr/bin/app");
 
-        let mut session = SessionRecord::new(session_envelope.clone(), identity.clone());
+        let mut session = SessionRecord::new(session_envelope.clone(), identity.clone())
+            .with_state(SessionState::Closed);
         session.push_flow_id(FlowId::new(101));
         session.push_flow_id(FlowId::new(202));
 
         assert_eq!(session.envelope, session_envelope);
         assert_eq!(session.identity, identity);
+        assert_eq!(session.state, SessionState::Closed);
         assert_eq!(session.identity.label.as_deref(), Some("api-service"));
         assert_eq!(session.identity.user.as_deref(), Some("alice"));
         assert_eq!(session.identity.container.as_deref(), Some("checkout"));
-        assert_eq!(session.identity.binary_path.as_deref(), Some("/usr/bin/app"));
+        assert_eq!(
+            session.identity.binary_path.as_deref(),
+            Some("/usr/bin/app")
+        );
+        assert_eq!(SessionState::Open.to_string(), "open");
+        assert_eq!(SessionState::Closed.to_string(), "closed");
+        assert_eq!(SessionState::Failed.to_string(), "failed");
         assert_eq!(session.flow_ids, vec![FlowId::new(101), FlowId::new(202)]);
     }
 }
