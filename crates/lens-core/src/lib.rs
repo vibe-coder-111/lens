@@ -43,6 +43,7 @@
 //! 40. Release validation and docs sync. Tests: workspace, docs, and release checklist.
 //!
 //! Milestone 1 in this commit implements the shared event envelope and identifier primitives.
+//! Milestone 2 in this commit adds the first concrete flow and message record primitives.
 
 use std::fmt;
 
@@ -370,6 +371,137 @@ impl Default for EventEnvelope {
     }
 }
 
+/// Network endpoint.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct Endpoint {
+    /// Hostname or IP address.
+    pub host: String,
+    /// Network port.
+    pub port: u16,
+}
+
+impl Endpoint {
+    /// Creates a new endpoint.
+    #[must_use]
+    pub fn new(host: impl Into<String>, port: u16) -> Self {
+        Self {
+            host: host.into(),
+            port,
+        }
+    }
+}
+
+impl fmt::Display for Endpoint {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}:{}", self.host, self.port)
+    }
+}
+
+/// Aggregate flow status.
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub enum FlowState {
+    /// The flow is currently active.
+    Open,
+    /// The flow closed normally.
+    Closed,
+    /// The flow failed or was truncated.
+    Failed,
+}
+
+impl fmt::Display for FlowState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(match self {
+            Self::Open => "open",
+            Self::Closed => "closed",
+            Self::Failed => "failed",
+        })
+    }
+}
+
+/// Aggregate flow record used by the store and UI.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FlowRecord {
+    /// Flow envelope.
+    pub envelope: EventEnvelope,
+    /// Client-side endpoint.
+    pub client: Endpoint,
+    /// Upstream endpoint.
+    pub upstream: Endpoint,
+    /// Protocol label, if known.
+    pub protocol: Option<String>,
+    /// Current flow state.
+    pub state: FlowState,
+    /// Messages observed in this flow.
+    pub message_ids: Vec<MessageId>,
+}
+
+impl FlowRecord {
+    /// Creates a new open flow record.
+    #[must_use]
+    pub fn new(envelope: EventEnvelope, client: Endpoint, upstream: Endpoint) -> Self {
+        Self {
+            envelope,
+            client,
+            upstream,
+            protocol: None,
+            state: FlowState::Open,
+            message_ids: Vec::new(),
+        }
+    }
+
+    /// Attaches a protocol label.
+    #[must_use]
+    pub fn with_protocol(mut self, protocol: impl Into<String>) -> Self {
+        self.protocol = Some(protocol.into());
+        self
+    }
+
+    /// Updates the flow state.
+    #[must_use]
+    pub fn with_state(mut self, state: FlowState) -> Self {
+        self.state = state;
+        self
+    }
+
+    /// Records a message identifier.
+    pub fn push_message_id(&mut self, message_id: MessageId) {
+        self.message_ids.push(message_id);
+    }
+}
+
+/// Normalized message record used by the store and export layer.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MessageRecord {
+    /// Message envelope.
+    pub envelope: EventEnvelope,
+    /// Human-readable summary.
+    pub summary: String,
+    /// Payload bytes.
+    pub body: Vec<u8>,
+    /// Whether the payload was truncated.
+    pub truncated: bool,
+}
+
+impl MessageRecord {
+    /// Creates a new message record from an envelope and payload.
+    #[must_use]
+    pub fn new(envelope: EventEnvelope, summary: impl Into<String>, body: impl Into<Vec<u8>>) -> Self {
+        Self {
+            envelope,
+            summary: summary.into(),
+            body: body.into(),
+            truncated: false,
+        }
+    }
+
+    /// Marks the message payload as truncated.
+    #[must_use]
+    pub fn with_truncated(mut self, truncated: bool) -> Self {
+        self.truncated = truncated;
+        self
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -436,5 +568,43 @@ mod tests {
         assert_eq!(EventSource::Cli.to_string(), "cli");
         assert_eq!(EventSource::Plugin.to_string(), "plugin");
         assert_eq!(EventSource::Benchmark.to_string(), "benchmark");
+    }
+
+    #[test]
+    fn endpoint_flow_and_message_records_are_constructible() {
+        let flow_envelope = EventEnvelope::new("flow.opened", RunId::new(42), EventSource::Store)
+            .with_session_id(SessionId::new(3))
+            .with_flow_id(FlowId::new(5));
+        let client = Endpoint::new("127.0.0.1", 51515);
+        let upstream = Endpoint::new("example.com", 443);
+
+        let mut flow = FlowRecord::new(flow_envelope.clone(), client.clone(), upstream.clone())
+            .with_protocol("http1");
+        flow.push_message_id(MessageId::new(99));
+
+        assert_eq!(flow.envelope, flow_envelope);
+        assert_eq!(flow.client, client);
+        assert_eq!(flow.upstream, upstream);
+        assert_eq!(flow.protocol.as_deref(), Some("http1"));
+        assert_eq!(flow.state, FlowState::Open);
+        assert_eq!(flow.message_ids, vec![MessageId::new(99)]);
+        assert_eq!(flow.client.to_string(), "127.0.0.1:51515");
+        assert_eq!(flow.upstream.to_string(), "example.com:443");
+        assert_eq!(FlowState::Open.to_string(), "open");
+        assert_eq!(FlowState::Closed.to_string(), "closed");
+        assert_eq!(FlowState::Failed.to_string(), "failed");
+
+        let message_envelope = EventEnvelope::new("message.emitted", RunId::new(42), EventSource::Decoder)
+            .with_flow_id(FlowId::new(5))
+            .with_message_id(MessageId::new(99))
+            .with_direction(Direction::ClientToServer)
+            .with_sensitivity(Sensitivity::Redacted);
+        let message = MessageRecord::new(message_envelope.clone(), "GET /health", b"hello".to_vec())
+            .with_truncated(true);
+
+        assert_eq!(message.envelope, message_envelope);
+        assert_eq!(message.summary, "GET /health");
+        assert_eq!(message.body, b"hello");
+        assert!(message.truncated);
     }
 }
