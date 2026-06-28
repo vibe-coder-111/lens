@@ -486,7 +486,11 @@ pub struct MessageRecord {
 impl MessageRecord {
     /// Creates a new message record from an envelope and payload.
     #[must_use]
-    pub fn new(envelope: EventEnvelope, summary: impl Into<String>, body: impl Into<Vec<u8>>) -> Self {
+    pub fn new(
+        envelope: EventEnvelope,
+        summary: impl Into<String>,
+        body: impl Into<Vec<u8>>,
+    ) -> Self {
         Self {
             envelope,
             summary: summary.into(),
@@ -703,13 +707,15 @@ mod tests {
         assert_eq!(FlowState::Closed.to_string(), "closed");
         assert_eq!(FlowState::Failed.to_string(), "failed");
 
-        let message_envelope = EventEnvelope::new("message.emitted", RunId::new(42), EventSource::Decoder)
-            .with_flow_id(FlowId::new(5))
-            .with_message_id(MessageId::new(99))
-            .with_direction(Direction::ClientToServer)
-            .with_sensitivity(Sensitivity::Redacted);
-        let message = MessageRecord::new(message_envelope.clone(), "GET /health", b"hello".to_vec())
-            .with_truncated(true);
+        let message_envelope =
+            EventEnvelope::new("message.emitted", RunId::new(42), EventSource::Decoder)
+                .with_flow_id(FlowId::new(5))
+                .with_message_id(MessageId::new(99))
+                .with_direction(Direction::ClientToServer)
+                .with_sensitivity(Sensitivity::Redacted);
+        let message =
+            MessageRecord::new(message_envelope.clone(), "GET /health", b"hello".to_vec())
+                .with_truncated(true);
 
         assert_eq!(message.envelope, message_envelope);
         assert_eq!(message.summary, "GET /health");
@@ -719,15 +725,17 @@ mod tests {
 
     #[test]
     fn session_identity_and_record_track_associated_flows() {
-        let session_envelope = EventEnvelope::new("session.started", RunId::new(77), EventSource::Proxy)
-            .with_session_id(SessionId::new(11));
+        let session_envelope =
+            EventEnvelope::new("session.started", RunId::new(77), EventSource::Proxy)
+                .with_session_id(SessionId::new(11));
         let identity = SessionIdentity::new()
             .with_label("api-service")
             .with_user("alice")
             .with_container("checkout")
             .with_binary_path("/usr/bin/app");
 
-        let mut session = SessionRecord::new(session_envelope.clone(), identity.clone()).with_state(SessionState::Closed);
+        let mut session = SessionRecord::new(session_envelope.clone(), identity.clone())
+            .with_state(SessionState::Closed);
         session.push_flow_id(FlowId::new(101));
         session.push_flow_id(FlowId::new(202));
 
@@ -737,7 +745,10 @@ mod tests {
         assert_eq!(session.identity.label.as_deref(), Some("api-service"));
         assert_eq!(session.identity.user.as_deref(), Some("alice"));
         assert_eq!(session.identity.container.as_deref(), Some("checkout"));
-        assert_eq!(session.identity.binary_path.as_deref(), Some("/usr/bin/app"));
+        assert_eq!(
+            session.identity.binary_path.as_deref(),
+            Some("/usr/bin/app")
+        );
         assert_eq!(SessionState::Open.to_string(), "open");
         assert_eq!(SessionState::Closed.to_string(), "closed");
         assert_eq!(SessionState::Failed.to_string(), "failed");
