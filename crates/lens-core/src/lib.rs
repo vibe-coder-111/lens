@@ -44,6 +44,7 @@
 //!
 //! Milestone 1 in this commit implements the shared event envelope and identifier primitives.
 //! Milestone 2 in this commit adds the first concrete flow and message record primitives.
+//! Milestone 3 in this commit adds the session identity model and flow association primitives.
 
 use std::fmt;
 
@@ -502,6 +503,83 @@ impl MessageRecord {
     }
 }
 
+/// Identity metadata associated with a capture session.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Hash)]
+pub struct SessionIdentity {
+    /// Optional display label for the session owner.
+    pub label: Option<String>,
+    /// Optional user or account name.
+    pub user: Option<String>,
+    /// Optional container or service name.
+    pub container: Option<String>,
+    /// Optional executable path.
+    pub binary_path: Option<String>,
+}
+
+impl SessionIdentity {
+    /// Creates an empty session identity.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Sets a display label.
+    #[must_use]
+    pub fn with_label(mut self, label: impl Into<String>) -> Self {
+        self.label = Some(label.into());
+        self
+    }
+
+    /// Sets the user or account name.
+    #[must_use]
+    pub fn with_user(mut self, user: impl Into<String>) -> Self {
+        self.user = Some(user.into());
+        self
+    }
+
+    /// Sets the container or service name.
+    #[must_use]
+    pub fn with_container(mut self, container: impl Into<String>) -> Self {
+        self.container = Some(container.into());
+        self
+    }
+
+    /// Sets the executable path.
+    #[must_use]
+    pub fn with_binary_path(mut self, binary_path: impl Into<String>) -> Self {
+        self.binary_path = Some(binary_path.into());
+        self
+    }
+}
+
+/// Session-level aggregate record.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SessionRecord {
+    /// Session envelope.
+    pub envelope: EventEnvelope,
+    /// Identity information for the owner or workload.
+    pub identity: SessionIdentity,
+    /// Associated flow identifiers.
+    pub flow_ids: Vec<FlowId>,
+}
+
+impl SessionRecord {
+    /// Creates a new session record.
+    #[must_use]
+    pub fn new(envelope: EventEnvelope, identity: SessionIdentity) -> Self {
+        Self {
+            envelope,
+            identity,
+            flow_ids: Vec::new(),
+        }
+    }
+
+    /// Records a flow identifier for the session.
+    pub fn push_flow_id(&mut self, flow_id: FlowId) {
+        self.flow_ids.push(flow_id);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -606,5 +684,28 @@ mod tests {
         assert_eq!(message.summary, "GET /health");
         assert_eq!(message.body, b"hello");
         assert!(message.truncated);
+    }
+
+    #[test]
+    fn session_identity_and_record_track_associated_flows() {
+        let session_envelope = EventEnvelope::new("session.started", RunId::new(77), EventSource::Proxy)
+            .with_session_id(SessionId::new(11));
+        let identity = SessionIdentity::new()
+            .with_label("api-service")
+            .with_user("alice")
+            .with_container("checkout")
+            .with_binary_path("/usr/bin/app");
+
+        let mut session = SessionRecord::new(session_envelope.clone(), identity.clone());
+        session.push_flow_id(FlowId::new(101));
+        session.push_flow_id(FlowId::new(202));
+
+        assert_eq!(session.envelope, session_envelope);
+        assert_eq!(session.identity, identity);
+        assert_eq!(session.identity.label.as_deref(), Some("api-service"));
+        assert_eq!(session.identity.user.as_deref(), Some("alice"));
+        assert_eq!(session.identity.container.as_deref(), Some("checkout"));
+        assert_eq!(session.identity.binary_path.as_deref(), Some("/usr/bin/app"));
+        assert_eq!(session.flow_ids, vec![FlowId::new(101), FlowId::new(202)]);
     }
 }
